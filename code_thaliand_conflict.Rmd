@@ -1,0 +1,86 @@
+---
+title: "Wyss -- Assignment"
+author:
+  - "Gustav Pirich (h11910449)"
+date: "May 4, 2024"
+output:
+  pdf_document:
+    toc: true
+    includes:
+      in_header: !expr file.path("~/Desktop/GITHUB/spatial_econ/helper/wraper_code.tex")
+bibliography: references.bib
+nocite: '@*'
+header-includes:
+  - \usepackage{tcolorbox}
+  - \usepackage[default]{lato}
+  - \usepackage{rotating}
+  - \usepackage{dcolumn}
+  - \usepackage{booktabs}
+papersize: a4
+geometry: margin=2cm
+urlcolor: DarkOrchid!65!black
+---
+
+
+```{r, setup, echo = FALSE, warning=FALSE, results = 'hide'}
+knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+knitr::opts_chunk$set(tidy.opts = list(width.cutoff = 80), tidy = TRUE)
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+
+pacman::p_load(spatialreg, showtext, magritr, bsreg, spdep, patchwork, gridExtra, fixest, splm, stringi, stringr, stringdist, haven, sf, dplyr, fuzzyjoin, comparator, digest, zoomerjoin, ggplot2, tidyr, ggthemes, viridis, fixest, conleyreg, plm, stargazer, bsreg, igraph, generics, knitr, kableExtra, formatR,readxl, haven, flextable, broom, units, sysfonts, showtextdb, tmap)
+```
+
+\vspace{2em}
+
+\begin{tcolorbox}
+\centering \itshape The code that was used in compiling the assignment is available on GitHub at \url{https://github.com/gustavpirich/spatial_econ/blob/main/03_assignment/03_assignmnet.Rmd}.
+\end{tcolorbox}
+
+\newpage
+
+
+```{r}
+
+thai_0 <- read_sf("gadm41_THA_shp/gadm41_THA_0.shp")
+
+thai_1 <- read_sf("gadm41_THA_shp/gadm41_THA_1.shp")
+
+conflict <- readRDS("ged241.rds")
+
+thai_conflict <- conflict %>%
+  filter(country == "Thailand") %>%
+  st_as_sf(coords = c("latitude", "longitude"))
+
+
+# expanding data to panel dataset
+thai_panel_1 <-thai_1 %<>%
+  st_drop_geometry()
+
+year <- 1992:2020
+
+# Create a dataframe with all combinations
+expanded_df <- expand.grid(thai_panel_1$NAME_1, year)
+
+names(expanded_df) <- c("NAME_1", "year")
+
+expanded_df <- expanded_df %>%
+  left_join(thai_panel_1) 
+
+
+conflict <- expanded_df %>%
+  left_join(thai_conflict) 
+```
+
+
+
+```{R}
+# Create the map
+tm <- tm_shape(thai_0) +
+  tm_polygons(col = "lightblue", border.col = "white", alpha = 0.5) +
+  tm_shape(thai_1) +
+  tm_borders(col = "black") +
+  tm_layout(main.title = " Thailand", main.title.position = "center")
+
+tm
+```
+
