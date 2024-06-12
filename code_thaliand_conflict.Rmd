@@ -1,5 +1,5 @@
 ---
-title: "Wyss -- Assignment"
+title: "Wyss Academy -- From Fights to Lights: The impact of conflict in Thailand"
 author:
   - "Gustav Pirich (h11910449)"
 date: "May 4, 2024"
@@ -41,52 +41,93 @@ pacman::p_load(spatialreg, showtext, magritr, bsreg, spdep, patchwork, gridExtra
 
 ```{r}
 
+# Read shapefiles for national and first administrative level geometries
 thai_0 <- read_sf("gadm41_THA_shp/gadm41_THA_0.shp")
-
 thai_1 <- read_sf("gadm41_THA_shp/gadm41_THA_1.shp")
+thai_2 <- read_sf("gadm41_THA_shp/gadm41_THA_2.shp")
 
+# Read the conflict data
 conflict <- readRDS("ged241.rds")
 
+# Filter Thai conflict data and convert to spatial dataframe
 thai_conflict <- conflict %>%
   filter(country == "Thailand") %>%
-  st_as_sf(coords = c("latitude", "longitude"))
+  st_as_sf(coords = c("longitude", "latitude"))
 
+# Set coordinate reference system for spatial data
 thai_conflict <- st_set_crs(thai_conflict, 4326)
 
-
+# Define a sequence of years for analysis
 year <- 1992:2020
 
-# Create a dataframe with all combinations
-expanded_df <- expand.grid(thai_1$NAME_1, year)
+# Create a dataframe with all combinations of GID and year
+expanded_df <- expand.grid(thai_1$GID_1, year)
+names(expanded_df) <- c("GID_1", "year")
 
-names(expanded_df) <- c("NAME_1", "year")
+# Spatial join to match conflicts to provinces using geometry
+joined_data <- st_join(thai_conflict, thai_1 %>% select(GID_1, geometry), join = st_within)
 
-# Simplify the polygons in expanded_df to reduce complexity
-# Adjust 'keep' parameter as needed to balance between simplicity and accuracy
-thai_1 <- ms_simplify(thai_1, keep = 0.1)
+# Create a conflict event panel data
+conflict_panel <- expanded_df %>%
+  left_join(joined_data, by = c("GID_1", "year"))
 
-expanded_df <- expanded_df %>%
-  left_join(thai_1) %>%
+# Summarize number of conflict events per province per year
+simplified_data <- conflict_panel %>%
+  group_by(GID_1, year) %>%
+  summarise(number_of_events = sum(!is.na(conflict_name)), .groups = "drop") %>%
+  left_join(thai_1 %>% select(GID_1, geometry))
+
+# Simplify the geometries to improve performance of plotting
+thai_1_simplified <- thai_1 %>%
+  st_simplify(dTolerance = 5) %>%
+  select(GID_1, geometry)
+
+# Aggregate data into 5-year intervals and summarize
+simplified_data_interval <- simplified_data %>%
+  mutate(interval = cut(year, breaks = seq(1990, 2020, by = 5), labels = c("1990-1994", "1995-1999", "2000-2004", "2005-2009", "2010-2014", "2015-2020"))) %>%
+  group_by(GID_1, interval) %>%
+  summarize(total_events = sum(number_of_events), .groups = 'drop') %>%
+  left_join(thai_1_simplified) %>%
   st_as_sf()
 
-# Spatial join to match conflicts to provinces
-joined_data <- st_join(expanded_df, thai_conflict, join = st_within)
-
-# Count conflicts by province and year
-conflict_counts <- joined_data %>%
-  group_by(NAME_1, year.x) %>%
-  summarise(conflict_count = n(), .groups = 'drop')
-
-# Merge conflict counts back to the original (simplified) data
-final_data <- expanded_df %>%
-  st_drop_geometry() %>%
-  left_join(conflict_counts %>% 
-              st_drop_geometry() %>% 
-              rename(year = year.x), 
-            by = c("NAME_1", "year"))
+# Plot the spatial distribution of conflict events over time intervals
+ggplot(data = simplified_data_interval) +
+  geom_sf(aes(fill = total_events), color = "black") +  # Fill polygons based on total events
+  facet_wrap(~interval) +  # Separate maps for each time period
+  scale_fill_viridis_c(option = "c", labels = scales::comma) +
+  labs(title = "Number of Events by Province and Interval",
+       fill = "Total Events") +
+  theme_minimal() +
+  theme(axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank(),
+        strip.text.x = element_text(angle = 0, hjust = 0.5))
 
 
 
+# Create the map using tmap
+tm_map <- tm_shape(simplified_data_interval) +
+  tm_polygons("total_events", title = "Number of Conflict Events", 
+              palette = "viridis", style = "pretty", 
+              border.col = "black", id = "interval") +
+  tm_facets(by = "interval", free.coords = FALSE, ncol = 3) +
+  tm_layout(main.title = "Number of UCDP Conflict Events in Thailand",
+            main.title.position = "center",
+            legend.text.size = 0.8,
+            frame = FALSE,
+            legend.title.size = 1,
+            outer.margins = 0,
+            inner.margins = c(0.05, 0.05, 0.05, 0.05),
+            legend.position = c("left", "bottom"),
+            legend.frame = TRUE,
+            panel.labels = c("1990-1994", "1995-1999", "2000-2004", "2005-2009", "2010-2014","2015-2020"),
+            panel.label.size = 1.2,
+            fontfamily = "sans") #+
+  
+#tm_compass(type = "arrow", position = c("left", "top")) +
+  #tm_scale_bar(position = c("left", "bottom"))
+
+tm_map
 ```
 
 
@@ -100,5 +141,73 @@ tm <- tm_shape(thai_0) +
   tm_layout(main.title = " Thailand", main.title.position = "center")
 
 tm
+
+
+# Plotting
+ggplot() +
+  geom_sf(data = thai_1, fill = "white", color = "black") +  # Draw provinces
+  geom_sf(data = thai_conflict, color = "red", size = 0.2) +  # Add conflict points
+  labs(title = "Conflict Events in Thailand",
+       subtitle = "Overlay of conflict events on administrative boundaries of Thai provinces") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Improve x-axis labels if needed
+
+```
+
+```{r}
+adm2_viirs <- read.csv("adm2_viirs.csv")
+
+str(adm2_viirs)
+
+adm2_viirs_long <- adm2_viirs %>%
+  pivot_longer(
+    cols = starts_with("viirs_ntl_annual_v21_avg_masked"), # specify the prefix common to all year columns
+    names_to = "year", # name of the new key column
+    values_to = "mean_intensity" # name of the new value column
+  )
+
+# Extract the year from the column name
+adm2_viirs_long <- adm2_viirs_long %>%
+  mutate(year = as.numeric(gsub("viirs_ntl_annual_v21_avg_masked\\.|\\.mean", "", year))) %>%
+  rename(NAME_2 = shapeName) %>%
+  group_by(NAME_2) %>%
+  filter(year %in% c(2012, 2021)) %>%
+  summarise(
+    growth_rate = (mean_intensity[year == 2021] - mean_intensity[year == 2012]) / mean_intensity[year == 2012]
+  )
+
+dat <- left_join(adm2_viirs_long, thai_2)
+
+dat_final <- dat %>%
+  st_as_sf() %>%
+  #st_simplify(dTolerance = 0.1) %>%
+  select(NAME_2, geometry, growth_rate)
+
+
+str(dat_final)
+
+# Plot the map
+ggplot(data = dat_final) +
+  geom_sf(aes(fill = growth_rate), color = "black") +
+  scale_fill_viridis_c(option = "viridis", na.value = "grey50", 
+                       name = "Growth Rate (%)") + 
+  theme_minimal() +
+  labs(title = "Growth Rates by Administrative Unit",
+       fill = "Growth Rate (%)") +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    legend.position = "bottom"
+  )
+
+
+# Plotting
+ggplot() +
+  geom_sf(data = thai_2, fill = "white", color = "black") +  # Draw provinces
+  geom_sf(data = thai_conflict, color = "red", size = 0.2) +  # Add conflict points
+  labs(title = "Conflict Events in Thailand",
+       subtitle = "Overlay of conflict events on administrative boundaries of Thai provinces") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Improve x-axis labels if needed
+
 ```
 
